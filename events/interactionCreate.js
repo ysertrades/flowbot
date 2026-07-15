@@ -100,14 +100,14 @@ async function handleButton(interaction) {
         return;
     }
 
-    // NEW: Call Support button handler
     if (customId === 'call_support') {
         await handleCallSupport(interaction);
         return;
     }
 
     const buttons = readJson('buttons.json', {});
-    const buttonData = buttons[interaction.customId];
+    // FIX: buttons are stored under guildId, so we need to access them properly
+    const buttonData = buttons[interaction.guild.id]?.[interaction.customId];
     if (!buttonData) return;
 
     if (buttonData.type === 'link') {
@@ -305,7 +305,6 @@ async function handleTicketCreate(interaction) {
 
         await ticketChannel.send({ content: supportRoleId ? `<@&${supportRoleId}>` : undefined, embeds: [welcomeEmbed], components: [closeRow] });
 
-        // UPDATED: Inactivity logic reads from settings
         if (settings.inactivityEnabled) {
             const inactivityMs = (settings.inactivityTime || 2) * 60 * 1000;
 
@@ -335,7 +334,6 @@ async function handleTicketCreate(interaction) {
 
                     await ticketChannel.send({ embeds: [inactiveEmbed], components: [callSupportRow] });
 
-                    // Auto-close logic
                     if (settings.autoCloseEnabled) {
                         const autoCloseMs = (settings.autoCloseTime || 10) * 60 * 1000;
                         setTimeout(async () => {
@@ -343,10 +341,9 @@ async function handleTicketCreate(interaction) {
                                 const recentMessages = await ticketChannel.messages.fetch({ limit: 5 });
                                 const lastMsg = recentMessages.first();
                                 const lastBotMsg = recentMessages.find(m => m.author.id === interaction.client.user.id && m.embeds[0]?.title?.includes('Inactivity'));
-                                
-                                // Only close if no new messages after the inactivity warning
+
                                 if (lastMsg && lastBotMsg && lastMsg.id !== lastBotMsg.id && lastMsg.createdTimestamp > lastBotMsg.createdTimestamp) {
-                                    return; // Someone responded after warning
+                                    return;
                                 }
 
                                 const closingEmbed = new EmbedBuilder()
@@ -402,7 +399,6 @@ async function handleTicketClose(interaction) {
     }, 5000);
 }
 
-// NEW: Handle Call Support button
 async function handleCallSupport(interaction) {
     const config = readJson('config.json', {});
     const guildConfig = config[interaction.guild.id] || {};
@@ -416,7 +412,6 @@ async function handleCallSupport(interaction) {
         return interaction.reply({ embeds: [embed], flags: MessageFlags.Ephemeral });
     }
 
-    // Send the mention in the channel
     await interaction.channel.send({
         content: `<@&${supportRoleId}> **Support requested in this ticket by <@${interaction.user.id}>!**`,
         allowedMentions: { roles: [supportRoleId] }
