@@ -14,8 +14,6 @@ const defaultSettings = {
     inactivityEnabled: true,
     inactivityTime: 2,
     inactivityMessage: 'This ticket has been inactive for {time}. If you still need help, click the button below to notify support.',
-    autoCloseEnabled: false,
-    autoCloseTime: 10,
     transcriptEnabled: false,
 };
 
@@ -34,8 +32,6 @@ module.exports = {
                     { name: 'Inactivity Time (minutes)', value: 'inactivityTime' },
                     { name: 'Inactivity Enabled', value: 'inactivityEnabled' },
                     { name: 'Inactivity Message', value: 'inactivityMessage' },
-                    { name: 'Auto-Close Enabled', value: 'autoCloseEnabled' },
-                    { name: 'Auto-Close Time (minutes)', value: 'autoCloseTime' },
                     { name: 'Transcript Enabled', value: 'transcriptEnabled' },
                 ))
             .addStringOption(opt => opt.setName('value').setDescription('New value (true/false for toggles, number for times, text for message)').setRequired(true)))
@@ -102,7 +98,7 @@ module.exports = {
             let parsedValue;
             let displayValue = value;
 
-            if (setting === 'inactivityTime' || setting === 'autoCloseTime') {
+            if (setting === 'inactivityTime') {
                 parsedValue = parseInt(value);
                 if (isNaN(parsedValue) || parsedValue < 1) {
                     return interaction.reply({
@@ -111,7 +107,7 @@ module.exports = {
                     });
                 }
                 displayValue = `${parsedValue} minute${parsedValue !== 1 ? 's' : ''}`;
-            } else if (setting === 'inactivityEnabled' || setting === 'autoCloseEnabled' || setting === 'transcriptEnabled') {
+            } else if (setting === 'inactivityEnabled' || setting === 'transcriptEnabled') {
                 const lower = value.toLowerCase();
                 if (lower === 'true' || lower === 'yes' || lower === '1' || lower === 'on') {
                     parsedValue = true;
@@ -154,8 +150,6 @@ module.exports = {
                     { name: 'Support Role', value: supportRole, inline: false },
                     { name: 'Inactivity Enabled', value: settings.inactivityEnabled ? '✅ Yes' : '❌ No', inline: true },
                     { name: 'Inactivity Time', value: `${settings.inactivityTime} minute${settings.inactivityTime !== 1 ? 's' : ''}`, inline: true },
-                    { name: 'Auto-Close Enabled', value: settings.autoCloseEnabled ? '✅ Yes' : '❌ No', inline: true },
-                    { name: 'Auto-Close Time', value: `${settings.autoCloseTime} minute${settings.autoCloseTime !== 1 ? 's' : ''}`, inline: true },
                     { name: 'Transcript Enabled', value: settings.transcriptEnabled ? '✅ Yes' : '❌ No', inline: true },
                     { name: 'Inactivity Message', value: settings.inactivityMessage || defaultSettings.inactivityMessage, inline: false },
                 ]
