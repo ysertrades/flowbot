@@ -9,6 +9,16 @@ async function sendTempReply(interaction, embed) {
     }, 10000);
 }
 
+// Default ticket settings
+const defaultSettings = {
+    inactivityEnabled: true,
+    inactivityTime: 2,
+    inactivityMessage: 'This ticket has been inactive for {time}. If you still need help, click the button below to notify support.',
+    autoCloseEnabled: false,
+    autoCloseTime: 10,
+    transcriptEnabled: false,
+};
+
 module.exports = {
     data: new SlashCommandBuilder()
         .setName('ticket').setDescription('Ticket system')
@@ -17,11 +27,25 @@ module.exports = {
             .addChannelOption(opt => opt.setName('channel').setDescription('Channel').setRequired(true).addChannelTypes(ChannelType.GuildText)))
         .addSubcommand(sub => sub.setName('supportrole').setDescription('Set support role')
             .addRoleOption(opt => opt.setName('role').setDescription('Support role').setRequired(true)))
-        .addSubcommand(sub => sub.setName('close').setDescription('Close current ticket channel')),
+        .addSubcommand(sub => sub.setName('close').setDescription('Close current ticket channel'))
+        .addSubcommand(sub => sub.setName('settings').setDescription('Configure ticket system settings')
+            .addStringOption(opt => opt.setName('setting').setDescription('Setting to change').setRequired(true)
+                .addChoices(
+                    { name: 'Inactivity Time (minutes)', value: 'inactivityTime' },
+                    { name: 'Inactivity Enabled', value: 'inactivityEnabled' },
+                    { name: 'Inactivity Message', value: 'inactivityMessage' },
+                    { name: 'Auto-Close Enabled', value: 'autoCloseEnabled' },
+                    { name: 'Auto-Close Time (minutes)', value: 'autoCloseTime' },
+                    { name: 'Transcript Enabled', value: 'transcriptEnabled' },
+                ))
+            .addStringOption(opt => opt.setName('value').setDescription('New value (true/false for toggles, number for times, text for message)').setRequired(true)))
+        .addSubcommand(sub => sub.setName('viewsettings').setDescription('View current ticket settings')),
+
     async execute(interaction) {
         const config = readJson('config.json', {});
         const guildId = interaction.guild.id;
         if (!config[guildId]) config[guildId] = {};
+        if (!config[guildId].ticketSettings) config[guildId].ticketSettings = { ...defaultSettings };
         const sub = interaction.options.getSubcommand();
 
         if (sub === 'setup') {
@@ -70,6 +94,73 @@ module.exports = {
             setTimeout(async () => {
                 try { await channel.delete('Ticket closed by user'); } catch {}
             }, 5000);
+
+        } else if (sub === 'settings') {
+            const setting = interaction.options.getString('setting');
+            const value = interaction.options.getString('value');
+            const settings = config[guildId].ticketSettings;
+            let parsedValue;
+            let displayValue = value;
+
+            if (setting === 'inactivityTime' || setting === 'autoCloseTime') {
+                parsedValue = parseInt(value);
+                if (isNaN(parsedValue) || parsedValue < 1) {
+                    return interaction.reply({
+                        embeds: [createServerEmbed('error', { title: 'Invalid Value', description: 'Please provide a valid number of minutes (minimum 1).' }, interaction.guild)],
+                        ephemeral: true
+                    });
+                }
+                displayValue = `${parsedValue} minute${parsedValue !== 1 ? 's' : ''}`;
+            } else if (setting === 'inactivityEnabled' || setting === 'autoCloseEnabled' || setting === 'transcriptEnabled') {
+                const lower = value.toLowerCase();
+                if (lower === 'true' || lower === 'yes' || lower === '1' || lower === 'on') {
+                    parsedValue = true;
+                    displayValue = 'Enabled';
+                } else if (lower === 'false' || lower === 'no' || lower === '0' || lower === 'off') {
+                    parsedValue = false;
+                    displayValue = 'Disabled';
+                } else {
+                    return interaction.reply({
+                        embeds: [createServerEmbed('error', { title: 'Invalid Value', description: 'Please use **true** or **false** for toggle settings.' }, interaction.guild)],
+                        ephemeral: true
+                    });
+                }
+            } else {
+                parsedValue = value;
+            }
+
+            const oldValue = settings[setting];
+            settings[setting] = parsedValue;
+            writeJson('config.json', config);
+
+            const embed = createServerEmbed('success', {
+                title: 'Setting Updated',
+                description: `**${setting}** has been updated.`,
+                fields: [
+                    { name: 'Old Value', value: String(oldValue ?? 'Not set'), inline: true },
+                    { name: 'New Value', value: String(displayValue), inline: true },
+                ]
+            }, interaction.guild);
+            await sendTempReply(interaction, embed);
+
+        } else if (sub === 'viewsettings') {
+            const settings = config[guildId].ticketSettings;
+            const supportRole = config[guildId].supportRole ? `<@&${config[guildId].supportRole}>` : 'Not set';
+
+            const embed = createServerEmbed('info', {
+                title: 'Ticket System Settings',
+                description: 'Current configuration for the ticket system.',
+                fields: [
+                    { name: 'Support Role', value: supportRole, inline: false },
+                    { name: 'Inactivity Enabled', value: settings.inactivityEnabled ? '✅ Yes' : '❌ No', inline: true },
+                    { name: 'Inactivity Time', value: `${settings.inactivityTime} minute${settings.inactivityTime !== 1 ? 's' : ''}`, inline: true },
+                    { name: 'Auto-Close Enabled', value: settings.autoCloseEnabled ? '✅ Yes' : '❌ No', inline: true },
+                    { name: 'Auto-Close Time', value: `${settings.autoCloseTime} minute${settings.autoCloseTime !== 1 ? 's' : ''}`, inline: true },
+                    { name: 'Transcript Enabled', value: settings.transcriptEnabled ? '✅ Yes' : '❌ No', inline: true },
+                    { name: 'Inactivity Message', value: settings.inactivityMessage || defaultSettings.inactivityMessage, inline: false },
+                ]
+            }, interaction.guild);
+            await interaction.reply({ embeds: [embed], ephemeral: true });
         }
     },
 };
