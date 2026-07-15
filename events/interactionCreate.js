@@ -26,6 +26,23 @@ module.exports = {
 
     // ── Button Interactions ──────────────────────────────
     if (interaction.isButton()) {
+      // Check for giveaway button specifically
+      if (interaction.customId === 'giveaway_enter') {
+        if (!global.giveawayEntrants) global.giveawayEntrants = new Map();
+        const entrants = global.giveawayEntrants.get(interaction.message.id);
+        
+        if (!entrants) {
+          return interaction.reply({ content: 'This giveaway has ended or was not found.', ephemeral: true });
+        }
+        
+        if (entrants.has(interaction.user.id)) {
+          return interaction.reply({ content: 'You\'ve already entered this giveaway!', ephemeral: true });
+        }
+        
+        entrants.add(interaction.user.id);
+        return interaction.reply({ content: 'You\'ve entered the giveaway! Good luck! 🎉', ephemeral: true });
+      }
+
       const [system, ...args] = interaction.customId.split(':');
 
       const handler = client.commands.get(`btn_${system}`);
@@ -34,19 +51,31 @@ module.exports = {
           await handler.handleButton(interaction, args, client);
         } catch (err) {
           console.error(`[BTN ERROR] ${interaction.customId}:`, err);
+          const errEmbed = embedUtil.error('Error', 'An unexpected error occurred.');
+          if (interaction.replied || interaction.deferred) {
+            await interaction.followUp({ embeds: [errEmbed], ephemeral: true }).catch(() => {});
+          } else {
+            await interaction.reply({ embeds: [errEmbed], ephemeral: true }).catch(() => {});
+          }
         }
       }
     }
 
     // ── Select Menu Interactions ─────────────────────────
     if (interaction.isStringSelectMenu()) {
-      const [system] = interaction.customId.split(':');
+      const [system, ...args] = interaction.customId.split(':');
       const handler = client.commands.get(`sel_${system}`);
       if (handler?.handleSelect) {
         try {
-          await handler.handleSelect(interaction, client);
+          await handler.handleSelect(interaction, args, client);
         } catch (err) {
           console.error(`[SEL ERROR] ${interaction.customId}:`, err);
+          const errEmbed = embedUtil.error('Error', 'An unexpected error occurred.');
+          if (interaction.replied || interaction.deferred) {
+            await interaction.followUp({ embeds: [errEmbed], ephemeral: true }).catch(() => {});
+          } else {
+            await interaction.reply({ embeds: [errEmbed], ephemeral: true }).catch(() => {});
+          }
         }
       }
     }
