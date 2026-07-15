@@ -1,4 +1,4 @@
-const { Events, MessageFlags, PermissionFlagsBits, ChannelType, ActionRowBuilder, ButtonBuilder, ButtonStyle, EmbedBuilder } = require('discord.js');
+const { Events, MessageFlags, PermissionFlagsBits, ChannelType, ActionRowBuilder, ButtonBuilder, ButtonStyle, EmbedBuilder, InteractionType } = require('discord.js');
 const { createServerEmbed, colors } = require('../utils/embedBuilder');
 const { readJson, writeJson } = require('../utils/jsonStorage');
 
@@ -45,7 +45,23 @@ module.exports = {
             return;
         }
 
+        // Handle embed edit modals
+        if (interaction.type === InteractionType.ModalSubmit) {
+            const embedCommand = interaction.client.commands.get('embed');
+            if (embedCommand && embedCommand.handleEmbedModal) {
+                const handled = await embedCommand.handleEmbedModal(interaction);
+                if (handled) return;
+            }
+        }
+
         if (interaction.isButton()) {
+            // Handle embed edit buttons
+            const embedCommand = interaction.client.commands.get('embed');
+            if (embedCommand && embedCommand.handleEmbedButton) {
+                const handled = await embedCommand.handleEmbedButton(interaction);
+                if (handled) return;
+            }
+
             await handleButton(interaction);
             return;
         }
@@ -219,7 +235,7 @@ async function handleGiveawayEntry(interaction) {
         await interaction.reply({ embeds: [embed], flags: MessageFlags.Ephemeral });
     }
 
-    const originalEmbed = interaction.message.embeds[0];
+    const originalEmbed = interaction.message;
     const count = entrants.size;
     const newEmbed = EmbedBuilder.from(originalEmbed);
     const fields = newEmbed.data.fields || [];
