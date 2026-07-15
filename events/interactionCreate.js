@@ -9,8 +9,6 @@ const defaultSettings = {
     inactivityEnabled: true,
     inactivityTime: 2,
     inactivityMessage: 'This ticket has been inactive for {time}. If you still need help, click the button below to notify support.',
-    autoCloseEnabled: false,
-    autoCloseTime: 10,
     transcriptEnabled: false,
 };
 
@@ -106,7 +104,6 @@ async function handleButton(interaction) {
     }
 
     const buttons = readJson('buttons.json', {});
-    // FIX: buttons are stored under guildId, so we need to access them properly
     const buttonData = buttons[interaction.guild.id]?.[interaction.customId];
     if (!buttonData) return;
 
@@ -333,32 +330,6 @@ async function handleTicketCreate(interaction) {
                     );
 
                     await ticketChannel.send({ embeds: [inactiveEmbed], components: [callSupportRow] });
-
-                    if (settings.autoCloseEnabled) {
-                        const autoCloseMs = (settings.autoCloseTime || 10) * 60 * 1000;
-                        setTimeout(async () => {
-                            try {
-                                const recentMessages = await ticketChannel.messages.fetch({ limit: 5 });
-                                const lastMsg = recentMessages.first();
-                                const lastBotMsg = recentMessages.find(m => m.author.id === interaction.client.user.id && m.embeds[0]?.title?.includes('Inactivity'));
-
-                                if (lastMsg && lastBotMsg && lastMsg.id !== lastBotMsg.id && lastMsg.createdTimestamp > lastBotMsg.createdTimestamp) {
-                                    return;
-                                }
-
-                                const closingEmbed = new EmbedBuilder()
-                                    .setColor(colors.error)
-                                    .setTitle('Auto-Closing Ticket')
-                                    .setDescription('This ticket is being closed due to inactivity.')
-                                    .setTimestamp();
-
-                                await ticketChannel.send({ embeds: [closingEmbed] });
-                                setTimeout(async () => {
-                                    try { await ticketChannel.delete('Auto-closed due to inactivity'); } catch {}
-                                }, 5000);
-                            } catch {}
-                        }, autoCloseMs);
-                    }
                 } catch {}
             }, inactivityMs);
         }
