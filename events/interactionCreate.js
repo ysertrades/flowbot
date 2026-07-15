@@ -4,6 +4,16 @@ const { readJson, writeJson } = require('../utils/jsonStorage');
 
 const pollVotes = new Map();
 
+// Default ticket settings (mirrored from ticket.js for safety)
+const defaultSettings = {
+    inactivityEnabled: true,
+    inactivityTime: 2,
+    inactivityMessage: 'This ticket has been inactive for {time}. If you still need help, click the button below to notify support.',
+    autoCloseEnabled: false,
+    autoCloseTime: 10,
+    transcriptEnabled: false,
+};
+
 module.exports = {
     name: Events.InteractionCreate,
     async execute(interaction) {
@@ -87,6 +97,12 @@ async function handleButton(interaction) {
 
     if (customId === 'close_ticket') {
         await handleTicketClose(interaction);
+        return;
+    }
+
+    // NEW: Call Support button handler
+    if (customId === 'call_support') {
+        await handleCallSupport(interaction);
         return;
     }
 
@@ -222,6 +238,7 @@ async function handleTicketCreate(interaction) {
     const member = interaction.member;
     const config = readJson('config.json', {});
     const guildConfig = config[guild.id] || {};
+    const settings = guildConfig.ticketSettings || { ...defaultSettings };
 
     const safeName = member.user.username.toLowerCase().replace(/[^a-z0-9]/g, '').slice(0, 20);
     const existing = guild.channels.cache.find(ch => ch.name === `ticket-${safeName}`);
@@ -288,27 +305,66 @@ async function handleTicketCreate(interaction) {
 
         await ticketChannel.send({ content: supportRoleId ? `<@&${supportRoleId}>` : undefined, embeds: [welcomeEmbed], components: [closeRow] });
 
-        setTimeout(async () => {
-            try {
-                const messages = await ticketChannel.messages.fetch({ limit: 5 });
-                const botMsgs = messages.filter(m => m.author.id === interaction.client.user.id);
-                const hasInactiveMsg = botMsgs.some(m => m.embeds[0]?.title?.includes('Inactivity'));
-                if (hasInactiveMsg) return;
+        // UPDATED: Inactivity logic reads from settings
+        if (settings.inactivityEnabled) {
+            const inactivityMs = (settings.inactivityTime || 2) * 60 * 1000;
 
-                const inactiveEmbed = new EmbedBuilder()
-                    .setColor(colors.warning)
-                    .setTitle('Inactivity Detected')
-                    .setDescription('This ticket has been inactive for 2 minutes.')
-                    .addFields(
-                        { name: 'Close Ticket', value: 'Click **Close Ticket** to close this ticket', inline: true },
-                        { name: 'Wait', value: 'Wait for a support member to respond', inline: true },
-                    )
-                    .setFooter({ text: 'YSER Flow Ticket System' })
-                    .setTimestamp();
+            setTimeout(async () => {
+                try {
+                    const messages = await ticketChannel.messages.fetch({ limit: 5 });
+                    const botMsgs = messages.filter(m => m.author.id === interaction.client.user.id);
+                    const hasInactiveMsg = botMsgs.some(m => m.embeds[0]?.title?.includes('Inactivity'));
+                    if (hasInactiveMsg) return;
 
-                await ticketChannel.send({ embeds: [inactiveEmbed] });
-            } catch {}
-        }, 120000);
+                    const timeText = `${settings.inactivityTime || 2} minute${(settings.inactivityTime || 2) !== 1 ? 's' : ''}`;
+                    const msgText = (settings.inactivityMessage || defaultSettings.inactivityMessage).replace('{time}', timeText);
+
+                    const inactiveEmbed = new EmbedBuilder()
+                        .setColor(colors.warning)
+                        .setTitle('Inactivity Detected')
+                        .setDescription(msgText)
+                        .setFooter({ text: 'YSER Flow Ticket System' })
+                        .setTimestamp();
+
+                    const callSupportRow = new ActionRowBuilder().addComponents(
+                        new ButtonBuilder()
+                            .setCustomId('call_support')
+                            .setLabel('📢 Call Support')
+                            .setStyle(ButtonStyle.Danger)
+                    );
+
+                    await ticketChannel.send({ embeds: [inactiveEmbed], components: [callSupportRow] });
+
+                    // Auto-close logic
+                    if (settings.autoCloseEnabled) {
+                        const autoCloseMs = (settings.autoCloseTime || 10) * 60 * 1000;
+                        setTimeout(async () => {
+                            try {
+                                const recentMessages = await ticketChannel.messages.fetch({ limit: 5 });
+                                const lastMsg = recentMessages.first();
+                                const lastBotMsg = recentMessages.find(m => m.author.id === interaction.client.user.id && m.embeds[0]?.title?.includes('Inactivity'));
+                                
+                                // Only close if no new messages after the inactivity warning
+                                if (lastMsg && lastBotMsg && lastMsg.id !== lastBotMsg.id && lastMsg.createdTimestamp > lastBotMsg.createdTimestamp) {
+                                    return; // Someone responded after warning
+                                }
+
+                                const closingEmbed = new EmbedBuilder()
+                                    .setColor(colors.error)
+                                    .setTitle('Auto-Closing Ticket')
+                                    .setDescription('This ticket is being closed due to inactivity.')
+                                    .setTimestamp();
+
+                                await ticketChannel.send({ embeds: [closingEmbed] });
+                                setTimeout(async () => {
+                                    try { await ticketChannel.delete('Auto-closed due to inactivity'); } catch {}
+                                }, 5000);
+                            } catch {}
+                        }, autoCloseMs);
+                    }
+                } catch {}
+            }, inactivityMs);
+        }
 
         const embed = createServerEmbed('success', {
             title: 'Ticket Created',
@@ -344,4 +400,31 @@ async function handleTicketClose(interaction) {
     setTimeout(async () => {
         try { await channel.delete('Ticket closed'); } catch {}
     }, 5000);
+}
+
+// NEW: Handle Call Support button
+async function handleCallSupport(interaction) {
+    const config = readJson('config.json', {});
+    const guildConfig = config[interaction.guild.id] || {};
+    const supportRoleId = guildConfig.supportRole;
+
+    if (!supportRoleId) {
+        const embed = createServerEmbed('error', {
+            title: 'No Support Role',
+            description: 'No support role is configured for this server. Use `/ticket supportrole` to set one.',
+        }, interaction.guild);
+        return interaction.reply({ embeds: [embed], flags: MessageFlags.Ephemeral });
+    }
+
+    // Send the mention in the channel
+    await interaction.channel.send({
+        content: `<@&${supportRoleId}> **Support requested in this ticket by <@${interaction.user.id}>!**`,
+        allowedMentions: { roles: [supportRoleId] }
+    });
+
+    const embed = createServerEmbed('success', {
+        title: 'Support Called',
+        description: 'The support team has been notified and will assist you shortly.',
+    }, interaction.guild);
+    await interaction.reply({ embeds: [embed], flags: MessageFlags.Ephemeral });
 }
